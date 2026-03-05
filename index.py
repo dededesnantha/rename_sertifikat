@@ -6,6 +6,11 @@ import PyPDF2
 # ─── Configuration ───────────────────────────────────────────────────────────
 CERTIFICATE_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "certificate")
 
+# Create the certificates folder if it doesn't exist
+if not os.path.exists(CERTIFICATE_FOLDER):
+    os.makedirs(CERTIFICATE_FOLDER)
+    print(f"Folder '{CERTIFICATE_FOLDER}' created. Please add certificate PDF files and run again.")
+
 
 def extract_cert_info(pdf_path):
     """
