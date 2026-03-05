@@ -1,6 +1,6 @@
 import os
 import re
-import PyPDF2
+import pdfplumber
 
 
 # ─── Configuration ───────────────────────────────────────────────────────────
@@ -17,73 +17,39 @@ def extract_cert_info(pdf_path):
     Extract certificate number and recipient name from a certificate PDF.
 
     Certificate number : text before 'Setda/DPMD' on the line containing it
-    Recipient name     : extracted from the line before the certificate number,
-                         where the name (ALL CAPS) is concatenated at the end
-                         of the description text.
+    Recipient name     : line immediately after 'Diberikan Kepada :'
     """
     try:
-        reader = PyPDF2.PdfReader(pdf_path)
-        if len(reader.pages) == 0:
-            print(f"  [SKIP] {pdf_path} - No pages found")
-            return None, None
+        with pdfplumber.open(pdf_path) as pdf:
+            if len(pdf.pages) == 0:
+                print(f"  [SKIP] {pdf_path} - No pages found")
+                return None, None
 
-        text = reader.pages[0].extract_text()
-        if not text:
-            print(f"  [SKIP] {pdf_path} - Could not extract text")
-            return None, None
+            text = pdf.pages[0].extract_text()
+            if not text:
+                print(f"  [SKIP] {pdf_path} - Could not extract text")
+                return None, None
 
         lines = text.split("\n")
 
-        # --- Find the certificate number line index ---
-        cert_line_idx = None
-        for i, line in enumerate(lines):
-            if "Setda/DPMD" in line or "Setda/ DPMD" in line:
-                cert_line_idx = i
-                break
-
-        if cert_line_idx is None:
-            return None, None
-
         # --- Extract certificate number ---
-        # Take everything before 'Setda/DPMD'
-        cert_line = lines[cert_line_idx]
-        parts = re.split(r"Setda\s*/\s*DPMD", cert_line)
-        cert_number = parts[0].strip().rstrip("/").strip() if parts else None
+        # Find the line containing 'Setda/DPMD' and take text before it
+        cert_number = None
+        for line in lines:
+            if "Setda/DPMD" in line or "Setda/ DPMD" in line:
+                parts = re.split(r"Setda\s*/\s*DPMD", line)
+                if parts:
+                    cert_number = parts[0].strip().rstrip("/").strip()
+                break
 
         # --- Extract recipient name ---
-        # The name is concatenated at the end of the line BEFORE the cert number.
-        # Strategy: combine the text between "Diberikan Kepada :" and the cert line,
-        # then extract the trailing ALL-CAPS name from the end.
+        # The name is on the line immediately after 'Diberikan Kepada :'
         name = None
-
-        # Find "Diberikan Kepada :" line
-        diberikan_idx = None
         for i, line in enumerate(lines):
             if "Diberikan Kepada" in line:
-                diberikan_idx = i
+                if i + 1 < len(lines):
+                    name = lines[i + 1].strip()
                 break
-
-        if diberikan_idx is not None and cert_line_idx > diberikan_idx:
-            # Join all text between "Diberikan Kepada :" and the cert number line
-            middle_text = " ".join(
-                lines[diberikan_idx + 1 : cert_line_idx]
-            ).strip()
-
-            # The name is the trailing ALL-CAPS portion at the end of the text.
-            # Indonesian names are typically ALL CAPS in certificates.
-            # Pattern: find a sequence of uppercase words at the end,
-            # possibly preceded by a lowercase letter (concatenated without space).
-            match = re.search(r"([A-Z][A-Z\s\.,']+)$", middle_text)
-            if match:
-                raw_name = match.group(1).strip()
-                # Clean: sometimes starts mid-word, remove partial leading word
-                # e.g. "BadungNI DESAK NYOMAN" -> "NI DESAK NYOMAN"
-                # Check if first char follows a lowercase letter in the original
-                start_pos = match.start(1)
-                if start_pos > 0 and middle_text[start_pos - 1].islower():
-                    # First word might be partial, keep it as it's actually the name start
-                    pass
-                name = raw_name.strip()
 
         return cert_number, name
 
